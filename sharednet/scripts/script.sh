@@ -19,7 +19,8 @@ slurm_dir=results/logs
 ##cp script.sh ${slurm_dir}/slurm-${job_id}.shs
 scontrol write batch_script ${job_id} ${slurm_dir}/slurm-${job_id}_args.sh
 
-idx=0; export CUDA_VISIBLE_DEVICES=$idx; stdbuf -oL python -u run.py 2>${slurm_dir}/slurm-${job_id}_$idx.err 1>${slurm_dir}/slurm-${job_id}_$idx.out --outfile=${slurm_dir}/slurm-${job_id}_$idx --hostname=$(hostname)  --mode='train' --remark="practice" &
+# shellcheck disable=SC2046
+idx=0; export CUDA_VISIBLE_DEVICES=$idx; stdbuf -oL python -u run.py 2>${slurm_dir}/slurm-${job_id}_$idx.err 1>${slurm_dir}/slurm-${job_id}_$idx.out --outfile=${slurm_dir}/slurm-${job_id}_$idx --hostname="$(hostname)"  --mode='train' --remark="practice" &
 
 wait
 

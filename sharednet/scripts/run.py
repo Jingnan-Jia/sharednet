@@ -168,7 +168,8 @@ class Task:
             self.accumulate_loss += loss.item()
 
             if step_id % 200 == 0:
-                log_metric(self.model_name + '_TrainBatchLossIn200Steps', self.accumulate_loss/200, step_id)
+                period = 1 if step_id==0 else 200  # the first accumulate_loss is the first loss
+                log_metric(self.model_name + '_TrainBatchLossIn200Steps', self.accumulate_loss/period, step_id)
                 self.accumulate_loss = 0
         t5 = time.time()
         print(f" {self.model_name} loss: {loss}, "
@@ -201,10 +202,12 @@ def run(args: Namespace):
 
     """
     out_chn = get_out_chn(args.model_names)
+    log_param('out_chn', out_chn)
+
     net = get_net(args.cond_flag, args.cond_method, args.cond_pos, out_chn, args.base)
     net_parameters = count_parameters(net)
     net_parameters = str(round(net_parameters / 1024 / 1024, 2))
-    log_param('net_parameters', net_parameters)
+    log_param('net_parameters (M)', net_parameters)
     net = net.to(torch.device("cuda"))
 
     loss_fun = get_loss(loss=args.loss)

@@ -89,7 +89,7 @@ def add_best_metrics(df: pd.DataFrame,
         :func:`ssc_scoring.mymodules.tool.record_2nd`
 
     """
-    modes = ['train', 'validaug', 'valid', 'test']
+    modes = ['train', 'valid', 'test']
     metrics_min = 'loss'
     df.at[index, 'metrics_min'] = metrics_min
 
@@ -237,6 +237,8 @@ def record_1st(args: argparse.Namespace) -> int:
             args_dict = vars(args)
             idatime.update(args_dict)  # followed by super parameters
             log_params(idatime)
+            log_param('ID', int(new_id))  # for the convenience of sorting in MLflow
+
             if len(df) == 0:  # empty file
                 df = pd.DataFrame([idatime])  # need a [] , or need to assign the index for df
             else:
@@ -317,7 +319,7 @@ def record_2nd(log_dict: dict, args: argparse.Namespace) -> None:
         for column in df:
             if column in args_dict.keys() and type(args_dict[column]) is int:
                 df[column] = df[column].astype(float).astype('Int64')  # correct str to float and then int
-        write_and_backup(df, record_file, mypath)
+        write_and_backup(df, record_file, current_mypath)
 
 
 def time_diff(t1: datetime, t2: datetime) -> str:

@@ -44,6 +44,7 @@ def get_file_names(data_dir, return_mode=('train', 'valid')):
 
     # if self.main_net_name!='lobe': # pat_28 should be in testing dataset.
     SEED = 47
+    log_param('data_shuffle_seed', SEED)
     # random.seed(SEED)
     # random.shuffle(ct_names)
     # random.seed(SEED)
@@ -82,8 +83,8 @@ def get_file_names(data_dir, return_mode=('train', 'valid')):
 
 
 def mydataloader(model_name, cond_flag, same_mask_value, patch_xy, patch_z, tsp_xy, tsp_z, pps, data_dir,
-                 return_mode=('train', 'valid', 'test'), load_workers=6, cache=True,
-                 batch_size=1):
+                 return_mode, load_workers, cache,
+                 batch_size):
     """Return train (and valid) dataloader.
 
 
@@ -196,7 +197,7 @@ class DataAll(Data):
         psz: str = "144_96"
 
         if 'lobe' in task:
-            tsp: str = "1.5_2.5",
+            tsp: Optional[str] = "1.5_2.5"
         elif 'vessel' in task or 'AV' in task:
             tsp = None
         elif 'liver' in task or 'pancreas' in task:
@@ -204,130 +205,130 @@ class DataAll(Data):
         else:
             raise Exception(f"wrong task name: {task}")
         super().__init__(task, tsp, psz)
-
-class DataLobe(Data):
-    """
-    Data class for lobe task
-    """
-
-    def __init__(self,
-                 task: str,
-                 tsp: str = "1.5_2.5",
-                 psz: str = "144_96"):
-        super().__init__(task, tsp, psz)
-
-
-class DataLobeLU(DataLobe):
-    """
-    Data class for left-upper lobe task
-    """
-
-    def __init__(self, task: str = "lobe_lu"):
-        super().__init__(task)
-
-
-class DataLobeLL(DataLobe):
-    """
-    Data class for left-lower lobe task
-    """
-
-    def __init__(self, task: str = "lobe_ll"):
-        super().__init__(task)
-
-
-class DataLobeRU(DataLobe):
-    """
-    Data class for right-upper lobe task
-    """
-
-    def __init__(self, task: str = "lobe_ru"):
-        super().__init__(task)
-
-
-class DataLobeRM(DataLobe):
-    """
-    Data class for right-middle lobe task
-    """
-
-    def __init__(self, task: str = "lobe_rm"):
-        super().__init__(task)
-
-
-class DataLobeRL(DataLobe):
-    """
-    Data class for right-lower lobe task
-    """
-
-    def __init__(self, task: str = "lobe_rl"):
-        super().__init__(task)
-
-
-class DataLobeALL(DataLobe):
-    """
-    Data class for all lobes task
-    """
-
-    def __init__(self, task: str = "lobe_all"):
-        super().__init__(task)
-
-
-class DataVessel(Data):
-    """
-    Data class for vessel task
-    """
-
-    def __init__(self,
-                 task: str = "vessel",
-                 tsp=None,
-                 psz="144_96"):
-        super().__init__(task, tsp, psz)
-
-
-class DataAVArtery(Data):
-    """
-    Data class for vessel task
-    """
-
-    def __init__(self,
-                 task: str = "AV_Artery",
-                 tsp=None,
-                 psz="144_96"):
-        super().__init__(task, tsp, psz)
-
-
-class DataAVVein(Data):
-    """
-    Data class for vessel task
-    """
-
-    def __init__(self,
-                 task: str = "AV_Vein",
-                 tsp=None,
-                 psz="144_96"):
-        super().__init__(task, tsp, psz)
-
-
-class DataLiver(Data):
-    """
-    Data class for vessel task
-    """
-
-    def __init__(self,
-                 task: str = "liver",
-                 tsp="1.5_1",
-                 psz="144_96"):
-        super().__init__(task, tsp, psz)
-
-
-class DataPancreas(Data):
-    """
-    Data class for vessel task
-    """
-
-    def __init__(self,
-                 task: str = "pancreas",
-                 tsp="1.5_1",
-                 psz="144_96"):
-        super().__init__(task, tsp, psz)
+#
+# class DataLobe(Data):
+#     """
+#     Data class for lobe task
+#     """
+#
+#     def __init__(self,
+#                  task: str,
+#                  tsp: str = "1.5_2.5",
+#                  psz: str = "144_96"):
+#         super().__init__(task, tsp, psz)
+#
+#
+# class DataLobeLU(DataLobe):
+#     """
+#     Data class for left-upper lobe task
+#     """
+#
+#     def __init__(self, task: str = "lobe_lu"):
+#         super().__init__(task)
+#
+#
+# class DataLobeLL(DataLobe):
+#     """
+#     Data class for left-lower lobe task
+#     """
+#
+#     def __init__(self, task: str = "lobe_ll"):
+#         super().__init__(task)
+#
+#
+# class DataLobeRU(DataLobe):
+#     """
+#     Data class for right-upper lobe task
+#     """
+#
+#     def __init__(self, task: str = "lobe_ru"):
+#         super().__init__(task)
+#
+#
+# class DataLobeRM(DataLobe):
+#     """
+#     Data class for right-middle lobe task
+#     """
+#
+#     def __init__(self, task: str = "lobe_rm"):
+#         super().__init__(task)
+#
+#
+# class DataLobeRL(DataLobe):
+#     """
+#     Data class for right-lower lobe task
+#     """
+#
+#     def __init__(self, task: str = "lobe_rl"):
+#         super().__init__(task)
+#
+#
+# class DataLobeALL(DataLobe):
+#     """
+#     Data class for all lobes task
+#     """
+#
+#     def __init__(self, task: str = "lobe_all"):
+#         super().__init__(task)
+#
+#
+# class DataVessel(Data):
+#     """
+#     Data class for vessel task
+#     """
+#
+#     def __init__(self,
+#                  task: str = "vessel",
+#                  tsp=None,
+#                  psz="144_96"):
+#         super().__init__(task, tsp, psz)
+#
+#
+# class DataAVArtery(Data):
+#     """
+#     Data class for vessel task
+#     """
+#
+#     def __init__(self,
+#                  task: str = "AV_Artery",
+#                  tsp=None,
+#                  psz="144_96"):
+#         super().__init__(task, tsp, psz)
+#
+#
+# class DataAVVein(Data):
+#     """
+#     Data class for vessel task
+#     """
+#
+#     def __init__(self,
+#                  task: str = "AV_Vein",
+#                  tsp=None,
+#                  psz="144_96"):
+#         super().__init__(task, tsp, psz)
+#
+#
+# class DataLiver(Data):
+#     """
+#     Data class for vessel task
+#     """
+#
+#     def __init__(self,
+#                  task: str = "liver",
+#                  tsp="1.5_1",
+#                  psz="144_96"):
+#         super().__init__(task, tsp, psz)
+#
+#
+# class DataPancreas(Data):
+#     """
+#     Data class for vessel task
+#     """
+#
+#     def __init__(self,
+#                  task: str = "pancreas",
+#                  tsp="1.5_1",
+#                  psz="144_96"):
+#         super().__init__(task, tsp, psz)
 
 

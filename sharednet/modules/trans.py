@@ -9,6 +9,7 @@ from monai.data import NibabelReader, ITKReader
 from monai.transforms import LoadImaged, AddChanneld, Orientationd, Spacingd, ScaleIntensityRanged, SpatialPadd, \
     RandAffined, RandCropByPosNegLabeld, RandGaussianNoised, CastToTyped, ToTensord
 from monai.transforms import Transform
+from mlflow import log_metric, log_param
 
 TransInOut = Dict[Hashable, Optional[Union[np.ndarray, torch.Tensor, str, int]]]
 
@@ -58,6 +59,9 @@ class FilterMask(Transform):
                                   'liver': 12,
                                   'pancreas': 13}
 
+        log_param('mask_value_target', str(self.mask_value_target))
+        log_param('mask_value_original', str(self.mask_value_original))
+
     def __call__(self, data: TransInOut) -> TransInOut:
         data_tmp = copy.deepcopy(data[self.key])
         ori_label = self.mask_value_original[self.model_name]
@@ -106,7 +110,7 @@ def get_xforms(model_name, cond_flag, same_mask_value, patch_xy, patch_z, tsp_xy
                 RandAffined(
                     keys,
                     prob=0.3,
-                    rotate_range=(0.05, 0.05),
+                    rotate_range=(0.05, 0.05),  # when changing it, do not forget to update the log_params
                     scale_range=(0.1, 0.1, 0.1),
                     mode=("bilinear", "nearest"),
                     as_tensor_output=False,

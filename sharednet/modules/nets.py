@@ -428,7 +428,7 @@ def condnet(cond_method, cond_pos, out_chn, base):
     if cond_method=='concat':
         net = CondnetConcat(out_channels=out_chn,
                             features=(base, base, 2 * base, 4 * base, 8 * base, base),
-                            dropout=0.1,
+                            dropout=0.1,  # when chaning it, do not forget to update log_param as well!
                             cond_pos=cond_pos)
     elif cond_method=='mul_add':
         net = CondnetMulAdd(out_channels=out_chn,
