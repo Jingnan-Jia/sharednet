@@ -43,6 +43,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--outfile', help='output file when running by script instead of pycharm', type=str)
     parser.add_argument('--hostname', help='hostname of the server', type=str)
     parser.add_argument('--remark', help='comments on this experiment', type=str, default='')
+    parser.add_argument('--jobid', help='slurm job_id', type=str, default='')
 
     args = parser.parse_args()
     if args.model_names == 'lobe_all_single':
