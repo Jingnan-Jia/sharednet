@@ -207,7 +207,7 @@ def run(args: Namespace):
     net = get_net(args.cond_flag, args.cond_method, args.cond_pos, out_chn, args.base)
     net_parameters = count_parameters(net)
     net_parameters = str(round(net_parameters / 1024 / 1024, 2))
-    log_param('net_parameters (M)', net_parameters)
+    log_param('net_parameters_M', net_parameters)
     net = net.to(torch.device("cuda"))
 
     loss_fun = get_loss(loss=args.loss)
@@ -234,3 +234,5 @@ if __name__ == "__main__":
     args.id = id  # do not need to pass id seperately to the latter function
     run(args)
     record_2nd(log_dict=log_dict, args=args)  # write more parameters & metrics to record file.
+
+
