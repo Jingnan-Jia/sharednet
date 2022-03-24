@@ -9,6 +9,7 @@
 #SBATCH --mail-type=end
 #SBATCH --mail-user=jiajingnan2222@gmail.com
 
+
 eval "$(conda shell.bash hook)"
 
 conda activate py38
@@ -19,8 +20,13 @@ slurm_dir=results/logs
 ##cp script.sh ${slurm_dir}/slurm-${job_id}.shs
 scontrol write batch_script ${job_id} ${slurm_dir}/slurm-${job_id}_args.sh
 
+git add -A
+git commit -m "jobid is ${job_id}"
+git push
+
 # shellcheck disable=SC2046
-idx=0; export CUDA_VISIBLE_DEVICES=$idx; stdbuf -oL python -u run.py 2>${slurm_dir}/slurm-${job_id}_$idx.err 1>${slurm_dir}/slurm-${job_id}_$idx.out --outfile=${slurm_dir}/slurm-${job_id}_$idx --hostname="$(hostname)"  --mode='train' --remark="practice" &
+idx=0; export CUDA_VISIBLE_DEVICES=$idx; stdbuf -oL python -u run.py 2>${slurm_dir}/slurm-${job_id}_$idx.err 1>${slurm_dir}/slurm-${job_id}_$idx.out --outfile=${slurm_dir}/slurm-${job_id}_$idx --hostname="$(hostname)" --jobid=${job_id} --mode='train' --remark="practice" &
+
 
 wait
 
