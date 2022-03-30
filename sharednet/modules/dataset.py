@@ -96,7 +96,7 @@ def mydataloader(model_name, cond_flag, same_mask_value, patch_xy, patch_z, tsp_
     ct_name_list: List[str]
     gdth_name_list: List[str]
     train_files, valid_files, test_files = get_file_names(data_dir=data_dir, return_mode=return_mode)
-    # train_files, valid_files, test_files = train_files[:2], valid_files[:3], test_files[:3]
+    # train_files, valid_files, test_files = train_files[:2], valid_files[:1], test_files[:1]
     # train_files, val_files = train_files[:2], val_files[:2]
     loaders = []
     if 'train' in return_mode:
@@ -114,7 +114,7 @@ def mydataloader(model_name, cond_flag, same_mask_value, patch_xy, patch_z, tsp_
             num_workers=load_workers,
             pin_memory=torch.cuda.is_available(),
             persistent_workers=True,
-            collate_fn=pad_list_data_collate,
+            # collate_fn=pad_list_data_collate,
         )
         loaders.append(train_loader)
 
@@ -129,7 +129,7 @@ def mydataloader(model_name, cond_flag, same_mask_value, patch_xy, patch_z, tsp_
             num_workers=load_workers,
             pin_memory=torch.cuda.is_available(),
             persistent_workers=True,
-            collate_fn=pad_list_data_collate
+            # collate_fn=pad_list_data_collate
 
         )
         loaders.append(val_loader)
@@ -145,7 +145,8 @@ def mydataloader(model_name, cond_flag, same_mask_value, patch_xy, patch_z, tsp_
             num_workers=load_workers,
             pin_memory=torch.cuda.is_available(),
             persistent_workers=True,
-        collate_fn=pad_list_data_collate)
+        # collate_fn=pad_list_data_collate
+        )
         loaders.append(test_loader)
 
 
@@ -162,7 +163,7 @@ class Data:
     Data class for different tasks
     """
 
-    def __init__(self, task: str, tsp: Optional[str], psz: str, ):
+    def __init__(self, task: str, tsp: Optional[str], psz: str, workers: int):
         self.task = task
         if tsp is not None:
             self.tsp_xy = float(tsp.split("_")[0])
@@ -173,15 +174,16 @@ class Data:
         self.psz_xy = int(psz.split("_")[0])
         self.psz_z = int(psz.split("_")[1])
         self.data_dir = MypathDataDir(task).data_dir
+        self.workers = workers
 
         log_params({f"{task}_tsp_xy": self.tsp_xy,
                     f"{task}_tsp_z": self.tsp_z,
                     f"{task}_psz_xy": self.psz_xy,
                     f"{task}_psz_z": self.psz_z})
 
-    def load(self, cond_flag, same_mask_value, pps, batch_size, return_mode=('train', 'valid', 'test'), load_workers=6, cache=True):
+    def load(self, cond_flag, same_mask_value, pps, batch_size, return_mode=('train', 'valid', 'test'), cache=True):
         all_loaders = mydataloader(self.task, cond_flag, same_mask_value, self.psz_xy, self.psz_z, self.tsp_xy, self.tsp_z,
-                                   pps, self.data_dir, return_mode, load_workers, cache, batch_size)
+                                   pps, self.data_dir, return_mode, self.workers, cache, batch_size)
 
         return all_loaders
 
@@ -194,8 +196,9 @@ class DataAll(Data):
     def __init__(self,
                  task: str,
                  ):
-        psz: str = "144_96"
-
+        psz: str = "128_128"
+        workers = 12
+        log_param('workers', workers)
         if 'lobe' in task:
             tsp: Optional[str] = "1.5_2.5"
         elif 'vessel' in task or 'AV' in task:
@@ -204,7 +207,7 @@ class DataAll(Data):
             tsp = "1.5_1"
         else:
             raise Exception(f"wrong task name: {task}")
-        super().__init__(task, tsp, psz)
+        super().__init__(task, tsp, psz, workers)
 #
 # class DataLobe(Data):
 #     """
