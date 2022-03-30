@@ -28,7 +28,7 @@ def get_inferer( patch_xy, patch_z, batch_size, mode):
 
     patch_size = (patch_xy, patch_xy, patch_z)
     sw_batch_size = batch_size
-    overlap = 0.5 if mode=='infer' else 0.9   # todo: change overlap for inferer
+    overlap = 0.5 if mode=='infer' else 0.1   # todo: less overlap for inferer
     inferer = SlidingWindowInfererCond(
         roi_size=patch_size,
         sw_batch_size=sw_batch_size,
