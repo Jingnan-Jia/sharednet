@@ -15,6 +15,7 @@ from filelock import FileLock
 from sharednet.modules.path import Mypath, MypathBase
 from pathlib import Path
 from mlflow import log_metric, log_param, log_artifacts, log_params
+import psutil
 
 class MyKeys:
     """The keys I used in this project."""
@@ -209,7 +210,7 @@ def get_df_id(record_file: str) -> Tuple[pd.DataFrame, int]:
     return df, new_id
 
 
-def record_1st(args: argparse.Namespace) -> int:
+def record_1st(args: argparse.Namespace):
     """First record in this experiment.
 
     Args:
@@ -235,21 +236,20 @@ def record_1st(args: argparse.Namespace) -> int:
             # start record by id, date,time row = [new_id, date, time, ]
             idatime = {'ID': new_id, 'start_date': start_date, 'start_time': start_time}
             args_dict = vars(args)
-            idatime.update(args_dict)  # followed by super parameters
-            log_params(idatime)
-            log_param('ID', int(new_id))  # for the convenience of sorting in MLflow
+            args_dict.update(idatime)
 
             if len(df) == 0:  # empty file
-                df = pd.DataFrame([idatime])  # need a [] , or need to assign the index for df
+                df = pd.DataFrame([args_dict])  # need a [] , or need to assign the index for df
             else:
                 index = df.index.to_list()[-1]  # last index
-                for key, value in idatime.items():  # write new line
-                    df.at[index + 1, key] = value  #
+                for key, value in args_dict.items():  # write new line
+                    if key=='ID':
+                        df.at[index + 1, key] = value  #
 
-            df = fill_running(df)  # fill the state information for other experiments
-            df = correct_type(df)  # aviod annoying thing like: ID=1.00
+            # df = fill_running(df)  # fill the state information for other experiments
+            # df = correct_type(df)  # aviod annoying thing like: ID=1.00
             write_and_backup(df, record_file, mypath)
-    return new_id
+    return new_id, args_dict
 
 
 def record_2nd(log_dict: dict, args: argparse.Namespace) -> None:
@@ -378,7 +378,7 @@ def record_mem_info() -> int:
     return int(memusage.strip())
 
 
-def record_gpu_info(outfile) -> Tuple:
+def record_cgpu_info(outfile) -> Tuple:
     """Record GPU information to `outfile`.
 
     Args:
@@ -398,6 +398,14 @@ def record_gpu_info(outfile) -> Tuple:
     """
 
     if outfile:
+        cpu_count = psutil.cpu_count()
+        log_param('cpu_count', cpu_count)
+
+
+        pid = os.getpid()
+        python_process = psutil.Process(pid)
+
+
         jobid_gpuid = outfile.split('-')[-1]
         tmp_split = jobid_gpuid.split('_')[-1]
         if len(tmp_split) == 2:
@@ -408,18 +416,60 @@ def record_gpu_info(outfile) -> Tuple:
         handle = nvidia_smi.nvmlDeviceGetHandleByIndex(gpuid)
         gpuname = nvidia_smi.nvmlDeviceGetName(handle)
         gpuname = gpuname.decode("utf-8")
+        log_param('gpuname', gpuname)
         # log_dict['gpuname'] = gpuname
-        info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
-        gpu_mem_usage = str(_bytes_to_megabytes(info.used)) + '/' + str(_bytes_to_megabytes(info.total)) + ' MB'
+
         # log_dict['gpu_mem_usage'] = gpu_mem_usage
         gpu_util = 0
-        for i in range(5):
+        for i in range(60*20):  # monitor 20 minutes
+            memoryUse = python_process.memory_info().rss / 2. ** 30  # memory use in GB...I think
+            log_metric('cpu_mem_used_GB_in_process_rss', memoryUse, step=i)
+            memoryUse = python_process.memory_info().vms / 2. ** 30  # memory use in GB...I think
+            log_metric('cpu_mem_used_GB_in_process_vms', memoryUse, step=i)
+            cpu_percent = psutil.cpu_percent()
+            log_metric('cpu_tuil_used_percent', cpu_percent, step=i)
+            # gpu_mem = dict(psutil.virtual_memory()._asdict())
+            # log_params(gpu_mem)
+            cpu_mem_used = psutil.virtual_memory().percent
+            log_metric('cpu_mem_used_percent', cpu_mem_used, step=i)
+
             res = nvidia_smi.nvmlDeviceGetUtilizationRates(handle)
             gpu_util += res.gpu
             time.sleep(1)
+            log_metric("gpu_util", res.gpu, step=i)
+
+            info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
+            # gpu_mem_used = str(_bytes_to_megabytes(info.used)) + '/' + str(_bytes_to_megabytes(info.total))
+            gpu_mem_used = _bytes_to_megabytes(info.used)
+            log_metric('gpu_mem_used_MB', gpu_mem_used, step=i)
         gpu_util = gpu_util / 5
+        gpu_mem_usage = gpu_mem_used + ' MB'
+
         # log_dict['gpu_util'] = str(gpu_util) + '%'
         return gpuname, gpu_mem_usage, str(gpu_util) + '%'
     else:
         print('outfile is None, can not show GPU memory info')
         return None, None, None
+
+
+def gpu_info(outfile: str) -> None:
+    """Get GPU usage information.
+
+    This function needs to be in the main file because it will be executed by another thread.
+
+    Args:
+        outfile: The format of `outfile` is: slurm-[JOB_ID].out
+
+    Returns:
+        None. The GPU information will be saved to global variable `log_dict`.
+
+    Example:
+
+    >>> gpu_info('slurm-98234.out')
+
+    """
+    gpu_name, gpu_usage, gpu_utis = record_cgpu_info(outfile)
+
+    # log_dict['gpuname'], log_dict['gpu_mem_usage'], log_dict['gpu_util'] = gpu_name, gpu_usage, gpu_utis
+
+    return None
