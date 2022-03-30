@@ -3,6 +3,7 @@
 # @Author  : Jingnan
 # @Email   : jiajingnan2222@gmail.com
 import sys
+import threading
 import time
 from typing import Dict, List
 from typing import (Optional, Union)
@@ -10,15 +11,15 @@ from typing import (Optional, Union)
 import matplotlib
 import torch
 from medutils.medutils import count_parameters
-from mlflow import log_metric, log_param
-
+from mlflow import log_metric, log_param, start_run, end_run, log_params, log_artifact
+import mlflow
 sys.path.append("../..")
 
 import argparse
 # import streamlit as st
 matplotlib.use('Agg')
 from sharednet.modules.set_args import get_args
-from sharednet.modules.tool import record_1st, record_2nd
+from sharednet.modules.tool import record_1st, record_2nd, record_cgpu_info
 from sharednet.modules.nets import get_net
 from sharednet.modules.loss import get_loss
 from sharednet.modules.path import Mypath, MypathDataDir
@@ -26,6 +27,8 @@ from sharednet.modules.evaluator import get_evaluator
 from sharednet.modules.dataset import DataAll
 
 from argparse import Namespace
+
+args = get_args()
 
 LogType = Optional[Union[int, float, str]]  # a global type to store immutable variables saved to log files
 
@@ -101,29 +104,31 @@ def all_loaders(model_name):
                                     batch_size=args.batch_size)
     return data, tr_dl, vd_dl, ts_dl
 
-def loop_dl(dl):
-    # keys = ("image", "mask", "cond")
-    dl_endless = iter(dl)
+def loop_dl(dl, batch_size):  # convert dict to list, convert wrong batch to right batch
     while True:
-        try:
-            out = next(dl_endless)
-        except:
-            dl_endless = iter(dl)
-            out = next(dl_endless)
-        yield out
+        keys = ('image', 'mask', 'cond')
+        out_image, out_mask, out_cond = [], [], []
 
-    # while True:
-    #     for data in dl:
-    #         x_pps = data[keys[0]]
-    #         y_pps = data[keys[1]]
-    #         cond_pps = data[keys[2]]
-    #         for x, y, cond in zip(x_pps, y_pps, cond_pps):
-    #             # print("start put by single thread, not fluent thread")
-    #             x = x[None, ...]
-    #             y = y[None, ...]
-    #             cond = cond[None, ...]
-    #             data_single = (x, y, cond)
-    #             yield data_single
+        for ori_batch in dl:  # batch length is batch_size * Croped_patches
+            ori_batch_ls = [ori_batch[key] for key in keys]  # [image, mask, cond]
+            for image, mask, cond in  zip(*ori_batch_ls):
+
+                out_image.append(image[None])  # a list of image with shape [1, chn,  x, y, z]
+                out_mask.append(mask[None])
+                out_cond.append(cond[None])
+                if len(out_image) >= batch_size:
+                    # out_batch_image = torch.Tensor(batch_size, *image.shape[1:])
+                    # out_batch_mask = torch.Tensor(batch_size, *mask.shape[1:])
+                    # out_batch_cond = torch.Tensor(batch_size, *cond.shape[1:])
+
+                    out_batch_image = torch.cat(out_image, 0)  # [batch_size, chn, x, y, z]
+                    out_batch_mask = torch.cat(out_mask, 0)
+                    out_batch_cond = torch.cat(out_cond, 0)
+
+                    out_image, out_mask, out_cond = [], [], []  # empty these lists
+
+                    yield out_batch_image, out_batch_mask, out_batch_cond
+
 
 class Task:
     def __init__(self, model_name, net, out_chn, opt, loss_fun):
@@ -136,9 +141,8 @@ class Task:
         self.opt = opt
         self.loss_fun = loss_fun
         self.device = torch.device("cuda")
-        self.scaler = torch.cuda.amp.GradScaler()
         data, self.tr_dl, self.vd_dl, self.ts_dl = all_loaders(self.model_name)
-        self.tr_dl_endless = loop_dl(self.tr_dl)  # loop training dataset
+        self.tr_dl_endless = loop_dl(self.tr_dl, args.batch_size)  # loop training dataset
 
 
         self.eval_vd = get_evaluator(net, self.vd_dl, self.mypath, data.psz_xy, data.psz_z, args.batch_size, 'valid',
@@ -148,34 +152,57 @@ class Task:
         self.accumulate_loss = 0
 
     def step(self, step_id):
+
+        self.scaler = torch.cuda.amp.GradScaler()
+
         # print(f"start a step for {self.model_name}")
         t1 = time.time()
-        image, mask, cond = (next(self.tr_dl_endless).get(key) for key in ('image', 'mask', 'cond'))
+        image, mask, cond = next(self.tr_dl_endless)
         t2 = time.time()
         image, mask, cond = image.to(self.device), mask.to(self.device), cond.to(self.device)
         t3 = time.time()
 
-        with torch.cuda.amp.autocast():
-            pred = self.net(image,cond)
+        self.opt.zero_grad()
+        if args.amp:
+            print('using amp ', end='')
+            with torch.cuda.amp.autocast():
+                pred = self.net(image,cond)
+                loss = self.loss_fun(pred, mask)
+            t4 = time.time()
+            self.scaler.scale(loss).backward()
+            t_bw = time.time()
+            self.scaler.step(self.opt)
+            t_st = time.time()
+            self.scaler.update()
+        else:
+            print('do not use amp ', end='')
+            pred = self.net(image, cond)
             loss = self.loss_fun(pred, mask)
             t4 = time.time()
-
-            self.opt.zero_grad()
-            self.scaler.scale(loss).backward()
-            self.scaler.step(self.opt)
-            self.scaler.update()
-
-            self.accumulate_loss += loss.item()
-
-            if step_id % 200 == 0:
-                period = 1 if step_id==0 else 200  # the first accumulate_loss is the first loss
-                log_metric(self.model_name + '_TrainBatchLossIn200Steps', self.accumulate_loss/period, step_id)
-                self.accumulate_loss = 0
+            loss.backward()
+            self.opt.step()
         t5 = time.time()
-        print(f" {self.model_name} loss: {loss}, "
-              f"load batch cost: {t2-t1:.1f}, "
-              f"forward costs: {t4-t3:.1f}, "
-              f"backward costs: {t5-t3:.1f}; ", end='' )
+
+        self.accumulate_loss += loss.item()
+
+        if step_id % 200 == 0:
+            period = 1 if step_id==0 else 200  # the first accumulate_loss is the first loss
+            log_metric(self.model_name + '_TrainBatchLossIn200Steps', self.accumulate_loss/period, step_id)
+            self.accumulate_loss = 0
+        if args.amp:
+            print(f" {self.model_name} loss: {loss:.3f}, "
+                  f"load batch cost: {t2-t1:.1f}, "
+                  f"forward costs: {t4-t3:.1f}, "
+                  f"only backward costs: {t_bw-t4:.1f}; "
+                  f"only step costs: {t_st-t_bw:.1f}; "
+                  f"only update costs: {t5-t_st:.1f}; ", end='' )
+        else:
+            print(f" {self.model_name} loss: {loss:.3f}, "
+                  f"load batch cost: {t2 - t1:.1f}, "
+                  f"forward costs: {t4 - t3:.1f}, "
+                  f"only update costs: {t5 - t4:.1f}; ", end='')
+
+
     def do_validation_if_need(self, step_id, steps, valid_period=2000):
 
         if step_id % valid_period == 0 or step_id == steps - 1:
@@ -226,13 +253,40 @@ def run(args: Namespace):
     print('Finish all training/validation/testing + metrics!')
 
 
+def record_artifacts(outfile):
+    t = threading.currentThread()
+    if outfile:
+        for i in range(6 * 10):  # 10 minutes
+            time.sleep(10)
+            log_artifact(outfile+'_err.txt')
+            log_artifact(outfile+'_out.txt')
+
+        while not getattr(t, "do_run", False):  # stop signal passed from t
+            time.sleep(60)
+            log_artifact(outfile+'_err.txt')
+            log_artifact(outfile+'_out.txt')
+        return None
+    else:
+        print(f"No output file, no log artifacts")
+        return None
+
+
 if __name__ == "__main__":
-    args = get_args()
     log_dict: Dict[str, LogType] = {}  # a global dict to store variables saved to log files
 
-    id: int = record_1st(args)  # write super parameters from set_args.py to record file.
-    args.id = id  # do not need to pass id seperately to the latter function
-    run(args)
-    record_2nd(log_dict=log_dict, args=args)  # write more parameters & metrics to record file.
+    id, log_dict = record_1st(args)  # write super parameters from set_args.py to record file.
 
+
+    with mlflow.start_run(run_name=str(id), tags={"mlflow.note.content": args.remark}):
+        p1 = threading.Thread(target=record_cgpu_info, args=(args.outfile,))
+        p1.start()
+        p2 = threading.Thread(target=record_artifacts, args=(args.outfile,))
+        p2.start()
+
+        log_params(log_dict)
+        args.id = id  # do not need to pass id seperately to the latter function
+        run(args)
+        p2.do_run = False  # stop the thread
+
+        record_2nd(log_dict=log_dict, args=args)  # write more parameters & metrics to record file.
 
