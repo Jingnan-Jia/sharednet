@@ -77,9 +77,9 @@ class UpCatConvCond(nn.Module):
         if cond is None:
             x = self.convs(torch.cat([x_e, x_0], dim=1))  # input channels: (cat_chns + up_chns)
         else:
-            ones = torch.ones(x.shape[0], 1, *x.shape[2:]).to(torch.device("cuda"))
+            ones = torch.ones(x_0.shape[0], 1, *x_0.shape[2:]).to(torch.device("cuda"))
             cond = ones * cond[:, None, None, None, None].to(torch.device("cuda"))
-            x = self.convs(torch.cat([x_e, x_0, cond], dim=1))  # input channels: (cat_chns + up_chns + 1)
+            x = self.convs_cond(torch.cat([x_e, x_0, cond], dim=1))  # input channels: (cat_chns + up_chns + 1)
         return x
 
 
