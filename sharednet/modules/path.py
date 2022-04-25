@@ -4,7 +4,7 @@
 # @Email   : jiajingnan2222@gmail.com
 
 import os
-from typing import Union
+from typing import Union, Optional
 from pathlib import Path
 
 
@@ -21,7 +21,7 @@ def get_data_dir(task):
         directory = "pancreas"
     else:
         raise Exception(f"task {task} is not correct!")
-    return "/data/jjia/mt/data/" + directory
+    return "/home/jjia/data/dataset/" + directory
 
 
 class MypathBase:
@@ -43,7 +43,7 @@ class Mypath(MypathBase):
     # log_dir = result_dir.joinpath('logs')
     # ex_dir = result_dir.joinpath('experiments')
 
-    def __init__(self, id: Union[int, str], check_id_dir: bool = False):
+    def __init__(self, id: Union[int, str], check_id_dir: bool = False, task: Optional[str]=None):
         super().__init__()
         if isinstance(id, (int, float)):
             self.id = str(int(id))
@@ -58,17 +58,30 @@ class Mypath(MypathBase):
             if not directory.is_dir():
                 directory.mkdir(parents=True)
                 print('successfully create directory:', directory.absolute())
+        self.task = task
+        if self.task is not None:
+            self.id_task_dir = self.id_dir.joinpath(task)
+            self.infer_pred_dir = self.id_task_dir.joinpath('infer')
 
         self.loss_fpath = self.id_dir.joinpath('loss.csv')
-
         self.model_fpath = self.id_dir.joinpath('model.pt')
-        self.model_wt_structure_fpath = self.id_dir.joinpath('model_wt_structure.pt')
+
+
     def metrics_fpath(self, mode):
-        metrics_fpath = self.id_dir.joinpath(mode + '_metrics.csv')
+        if self.task is not None:
+            metrics_fpath = self.id_task_dir.joinpath(mode + '_metrics.csv')
+        else:
+            metrics_fpath = self.id_dir.joinpath(mode + '_metrics.csv')
+
         return metrics_fpath
 
 class MypathDataDir(MypathBase):
     """Dataset directory is implemented here"""
     def __init__(self, task):
+        super().__init__()
+        self.data_dir = get_data_dir(task)
+
+class PathIDTask(MypathBase):
+    def __init__(self, id: Union[int, str], check_id_dir: bool, task: str):
         super().__init__()
         self.data_dir = get_data_dir(task)
