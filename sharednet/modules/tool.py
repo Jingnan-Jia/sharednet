@@ -271,7 +271,7 @@ def record_2nd(log_dict: dict, args: argparse.Namespace) -> None:
     current_id = args.id
     record_file = MypathBase().record_fpath
 
-    lock = FileLock(record_file + ".lock")
+    lock = FileLock(str(record_file) + ".lock")
     with lock:  # with this lock,  open a file for exclusive access
         df = pd.read_csv(record_file)
         index = df.index[df['ID'] == current_id].to_list()
@@ -443,7 +443,7 @@ def record_cgpu_info(outfile) -> Tuple:
             gpu_mem_used = _bytes_to_megabytes(info.used)
             log_metric('gpu_mem_used_MB', gpu_mem_used, step=i)
         gpu_util = gpu_util / 5
-        gpu_mem_usage = gpu_mem_used + ' MB'
+        gpu_mem_usage = str(gpu_mem_used) + ' MB'
 
         # log_dict['gpu_util'] = str(gpu_util) + '%'
         return gpuname, gpu_mem_usage, str(gpu_util) + '%'
