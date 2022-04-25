@@ -4,14 +4,14 @@
 ### `set_args.py` set general parameters for all datasets.
 - model_names
 - mode              = 'train'
-- infer_data_dir
+- infer_data_dir    = 'Not_sure'
 - infer_weights_fpath
-- infer_ID  
-- loss = 'dice'
-- cond_flag
-- cond_method
-- cond_pos
-- same_mask_value
+- infer_ID          = 198
+- loss              = 'dice'
+- cond_flag         = True
+- cond_method       = 'concat'
+- cond_pos          = 'enc'
+- same_mask_value   = False
 - base              = 32
 - steps             = 100001
 - valid_period
