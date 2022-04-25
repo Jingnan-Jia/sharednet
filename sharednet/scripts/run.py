@@ -25,6 +25,13 @@ from sharednet.modules.loss import get_loss
 from sharednet.modules.path import Mypath, MypathDataDir
 from sharednet.modules.evaluator import get_evaluator
 from sharednet.modules.dataset import DataAll
+from sharednet.modules.evaluator import get_inferer
+
+from monai.metrics import DiceMetric
+import monai
+import os
+import seg_metrics.seg_metrics as sg
+
 
 from argparse import Namespace
 
@@ -130,13 +137,14 @@ def loop_dl(dl, batch_size):  # convert dict to list, convert wrong batch to rig
                     yield out_batch_image, out_batch_mask, out_batch_cond
 
 
+
 class Task:
     def __init__(self, model_name, net, out_chn, opt, loss_fun):
         self.model_name = model_name
         task = task_of_model(self.model_name)
         self.data_dir = MypathDataDir(task).data_dir
         self.net = net
-        self.mypath = Mypath(args.id, check_id_dir=False)
+        self.mypath = Mypath(args.id, check_id_dir=False, task=task)
         self.out_chn = out_chn
         self.opt = opt
         self.loss_fun = loss_fun
@@ -150,6 +158,10 @@ class Task:
         self.eval_ts = get_evaluator(net, self.ts_dl, self.mypath, data.psz_xy, data.psz_z, args.batch_size, 'test',
                                        out_chn)
         self.accumulate_loss = 0
+        self.accumulate_dice_ex_bg = 0
+
+        self.dice_fun_ex_bg = monai.losses.DiceLoss(to_onehot_y=True, softmax=True, include_background=False)
+        self.inferer = get_inferer(data.psz_xy, data.psz_z, args.batch_size, 'infer')
 
     def step(self, step_id):
 
@@ -168,6 +180,7 @@ class Task:
             with torch.cuda.amp.autocast():
                 pred = self.net(image,cond)
                 loss = self.loss_fun(pred, mask)
+                dice_ex_bg = self.dice_fun_ex_bg(pred, mask)
             t4 = time.time()
             self.scaler.scale(loss).backward()
             t_bw = time.time()
@@ -178,17 +191,22 @@ class Task:
             print('do not use amp ', end='')
             pred = self.net(image, cond)
             loss = self.loss_fun(pred, mask)
+            dice_ex_bg = self.dice_fun_ex_bg(pred, mask)
             t4 = time.time()
             loss.backward()
             self.opt.step()
         t5 = time.time()
 
         self.accumulate_loss += loss.item()
-
+        self.accumulate_dice_ex_bg += dice_ex_bg.item()
         if step_id % 200 == 0:
             period = 1 if step_id==0 else 200  # the first accumulate_loss is the first loss
-            log_metric(self.model_name + '_TrainBatchLossIn200Steps', self.accumulate_loss/period, step_id)
+            # todo: change the title if loss function is changed
+            log_metric(self.model_name + '_TrDiceInBgTrainBatchIn200Steps', 1 - self.accumulate_loss/period, step_id)
+            log_metric(self.model_name + '_TrDiceExBgTrainBatchIn200Steps', 1 - self.accumulate_dice_ex_bg/period, step_id)
+
             self.accumulate_loss = 0
+            self.accumulate_dice_ex_bg = 0
         if args.amp:
             print(f" {self.model_name} loss: {loss:.3f}, "
                   f"load batch cost: {t2-t1:.1f}, "
@@ -203,14 +221,70 @@ class Task:
                   f"only update costs: {t5 - t4:.1f}; ", end='')
 
 
-    def do_validation_if_need(self, step_id, steps, valid_period=2000):
+    def do_validation_if_need(self, step_id, steps, valid_period):
 
         if step_id % valid_period == 0 or step_id == steps - 1:
             print(f"start a valid for {self.model_name}")
             self.eval_vd.run()
-        if step_id == steps - 1:
-            print(f"start a test for {self.model_name}")
-            self.eval_ts.run()
+        # if step_id == steps - 1:
+        #     print(f"start a test for {self.model_name}")
+        #     self.eval_ts.run()
+
+    def infer(self):
+        print("start infer")
+        keys = ("image",)
+        self.net.eval()
+        if args.infer_data_dir == '':  # prediction may be GLUCOLD or LUNA16 or LOLA11
+            prediction_folder = os.path.join(self.mypath.infer_pred_dir())
+        else:
+            prediction_folder = os.path.join(self.mypath.infer_pred_dir(), args.infer_data_dir.split("/")[-1])
+        print(prediction_folder)
+        saver = monai.data.NiftiSaver(output_dir=prediction_folder,
+                                      mode="nearest")  # todo: change mode , mode="nearest"
+        # if 1:
+        self.infer_loader = self.ts_dl  # test dataset is the infer data
+        with torch.no_grad():
+            for infer_data in self.infer_loader:
+                print(f"segmenting {infer_data['image_meta_dict']['filename_or_obj']}")
+                preds = self.inferer(infer_data[keys[0]].to(self.device), self.net)
+                preds = (preds.argmax(dim=1, keepdims=True)).float()
+                saver.save_batch(preds, infer_data["image_meta_dict"])
+
+        # copy the saved segmentations into the required folder structure for submission
+        # if not os.path.exists(prediction_folder):
+        #     os.makedirs(prediction_folder)
+        # # files = glob.glob(os.path.join(prediction_folder,"*", "*.nii.gz"))
+        # files = get_all_ct_names(os.path.join(prediction_folder, "*"), suffix="_ct_seg")
+        #
+        # for f in files:
+        #     new_name = os.path.basename(f)
+        #     new_name = new_name.split("_ct")[0] + new_name.split("_ct")[1]
+        #     to_name = os.path.join(prediction_folder, new_name)
+        #     shutil.move(f, to_name)
+        #     parent_dir = pathlib.Path(f).parent.absolute()  # remove the empty directory after move its file
+        #     if len(os.listdir(parent_dir)) == 0:
+        #         # removing the file using the os.remove() method
+        #         os.rmdir(parent_dir)
+        #
+        # logging.info(f"predictions copied to {prediction_folder}.")
+
+        # if "lobe" in self.net_name:  # other tasks do not have lobe ground truth
+        #     gdth_file = self.mypath.data_task_dir
+        #     pred_file = prediction_folder
+        #     csv_file = os.path.join(prediction_folder, 'metrics.csv')
+        #
+        #     metrics = sg.write_metrics(labels=self.labels[1:],  # exclude background
+        #                                gdth_path=gdth_file,
+        #                                pred_path=pred_file,
+        #                                csv_file=csv_file)
+        #     print('metrics: ', metrics)
+
+        sg.write_metrics(labels=[1],  # exclude background
+                         gdth_path=self.data_dir,
+                         pred_path=prediction_folder,
+                         csv_file=prediction_folder + '/metric.csv',
+                         metrics=['dice', 'jaccard', 'precision', 'recall', 'fpr', 'fnr', 'vs', 'hd', 'hd95', 'msd',
+                                  'mdsd', 'stdsd'])
 
 
 def task_dt(model_names, net, out_chn, opt, loss_fun):
@@ -235,7 +309,10 @@ def run(args: Namespace):
     net_parameters = count_parameters(net)
     net_parameters = str(round(net_parameters / 1024 / 1024, 2))
     log_param('net_parameters_M', net_parameters)
-    net = net.to(torch.device("cuda"))
+    device = torch.device("cuda")
+    net = net.to(device)
+    if args.infer_weights_fpath:  # load trained weights
+        net.load_state_dict(torch.load(args.infer_weights_fpath, map_location=device))
 
     loss_fun = get_loss(loss=args.loss)
 
@@ -244,11 +321,14 @@ def run(args: Namespace):
     model_names: List[str] = mt_netnames(args.model_names)
     ta_dict = task_dt(model_names, net, out_chn, opt, loss_fun)
 
-    for step_id in range(args.steps):
-        print(f'\nstep number: {step_id}, ', end='' )
-        for model_name, ta in ta_dict.items():
-            ta.step(step_id)
-            ta.do_validation_if_need(step_id, args.steps)
+    if args.mode != 'infer':
+        for step_id in range(args.steps):
+            print(f'\nstep number: {step_id}, ', end='' )
+            for model_name, ta in ta_dict.items():
+                ta.step(step_id)
+                ta.do_validation_if_need(step_id, args.steps, args.valid_period)
+    for model_name, ta in ta_dict.items():
+        ta.infer()
 
     print('Finish all training/validation/testing + metrics!')
 
@@ -287,6 +367,4 @@ if __name__ == "__main__":
         args.id = id  # do not need to pass id seperately to the latter function
         run(args)
         p2.do_run = False  # stop the thread
-
-        record_2nd(log_dict=log_dict, args=args)  # write more parameters & metrics to record file.
-
+        # record_2nd(log_dict=log_dict, args=args)  # write more parameters & metrics to record file.
