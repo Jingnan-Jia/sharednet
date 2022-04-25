@@ -9,6 +9,7 @@ import numpy as np
 from sharednet.modules.custom_inferer import SlidingWindowInfererCond
 from typing import Dict, Optional, Union, Tuple, Any, List
 from sharednet.modules.tool import MyKeys
+from mlflow import log_metric, log_param, start_run, end_run, log_params, log_artifact
 
 
 from monai.handlers import (
@@ -122,7 +123,7 @@ def get_evaluator(net, dl, mypath, patch_xy, patch_z, batch_size, mode, out_chn)
     )
     val_handlers = [
         ProgressBar(),
-        CheckpointSaver(save_dir=mypath.id_dir,
+        CheckpointSaver(save_dir=mypath.id_task_dir,
                         save_dict={"net": net},
                         save_key_metric=True,
                         key_metric_n_saved=3),
@@ -143,15 +144,19 @@ def get_evaluator(net, dl, mypath, patch_xy, patch_z, batch_size, mode, out_chn)
         amp=True,
     )
 
+
     def record_val_metrics(engine):
         val_log_dir = mypath.metrics_fpath('valid')
         if os.path.exists(val_log_dir):
             val_log = np.genfromtxt(val_log_dir, dtype='str', delimiter=',')
         else:
             val_log = ['dice_ex_bg', 'dice_inc_bg']
-        val_log = np.vstack([val_log, [round(engine.state.metrics["dice_ex_bg"], 3),
-                                       round(engine.state.metrics["dice_inc_bg"], 3)]])
+        dice_ex_bg = round(engine.state.metrics["dice_ex_bg"], 3)
+        dice_inc_bg = round(engine.state.metrics["dice_inc_bg"], 3)
+        val_log = np.vstack([val_log, [dice_ex_bg,dice_inc_bg]])
         np.savetxt(val_log_dir, val_log, fmt='%s', delimiter=',')
+        log_metric(str(mypath.task) + mode+'_dice_ex_bg', dice_ex_bg, step=len(val_log)-1)
+        log_metric(str(mypath.task) + mode+'_dice_inc_bg', dice_inc_bg, step=len(val_log)-1)
 
     from ignite.engine import Events
     evaluator.add_event_handler(Events.COMPLETED, record_val_metrics)
