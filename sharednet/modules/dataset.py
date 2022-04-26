@@ -195,8 +195,8 @@ class DataAll(Data):
 
     def __init__(self,
                  task: str,
+                 psz: str = "128_128"
                  ):
-        psz: str = "128_128"
         workers = 12
         log_param('workers', workers)
         if 'lobe' in task:
