@@ -62,6 +62,10 @@ class Mypath(MypathBase):
         if self.task is not None:
             self.id_task_dir = self.id_dir.joinpath(task)
             self.infer_pred_dir = self.id_task_dir.joinpath('infer')
+            for directory in [self.id_task_dir, self.infer_pred_dir]:
+                if not directory.is_dir():
+                    directory.mkdir(parents=True)
+                    print('successfully create directory:', directory.absolute())
 
         self.loss_fpath = self.id_dir.joinpath('loss.csv')
         self.model_fpath = self.id_dir.joinpath('model.pt')
