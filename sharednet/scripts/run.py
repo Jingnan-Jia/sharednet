@@ -231,7 +231,8 @@ class Task:
 
             self.accumulate_loss = 0
             self.accumulate_dice_ex_bg = 0
-        log_metric('TimeLoadBatch', t2-t1, step_id)
+        if step_id <= 1200:  # log the loading time in 1200 steps
+            log_metric(self.model_name + 'TimeLoad', t2-t1, step_id)
         if args.amp:
             print(f" {self.model_name} loss: {loss:.3f}, "
                   f"load batch cost: {t2-t1:.1f}, "
@@ -368,8 +369,10 @@ def run(args: Namespace):
                 accu_grad = True if model_idx != len(model_names)-1 else False
                 ta.step(step_id, accu_grad=accu_grad, accu_grad_nb=len(model_names))
                 if step_id % args.valid_period == 0 or step_id == args.steps - 1:
-                    print(f"start a valid for {model_name}")
+                    print(f"start a valid for {model_name} at time {time.time()}")
                     ta.eval_vd.run()
+                    print(f"finish a valid for {model_name} at time {time.time()}")
+
                     if model_idx==0 and len(model_names)>=1:
                         eval_vd_all.run()
                 model_idx += 1
