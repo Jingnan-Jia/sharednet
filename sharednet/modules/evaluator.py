@@ -121,9 +121,16 @@ def get_evaluator(net, dl, mypath, patch_xy, patch_z, batch_size, mode, out_chn)
     val_post_transform = monai.transforms.Compose(
         [ToTensord(keys=keys), AsDiscreted(keys=keys, argmax=(True, False), to_onehot=True, n_classes=out_chn)]
     )
+    if mypath.task is None:
+        save_dir = mypath.id_dir
+        pre = 'AllTasks'
+    else:
+        save_dir = mypath.id_task_dir
+        pre = str(mypath.task)
+
     val_handlers = [
         ProgressBar(),
-        CheckpointSaver(save_dir=mypath.id_task_dir,
+        CheckpointSaver(save_dir=save_dir,
                         save_dict={"net": net},
                         save_key_metric=True,
                         key_metric_n_saved=3),
@@ -131,32 +138,37 @@ def get_evaluator(net, dl, mypath, patch_xy, patch_z, batch_size, mode, out_chn)
 
 
     # output_trans = monai.transforms.Compose([myfrom_engine(keys), to_cuda(keys)])
+    if type(dl) is list:
+        epoch_length = len(dl)
+    else:
+        epoch_length = None
     evaluator = monai.engines.SupervisedEvaluator(
         device=torch.device("cuda"),
         val_data_loader=dl,
+        epoch_length = epoch_length,
         prepare_batch=myprepare_batch,
         network=net,
         inferer=get_inferer(patch_xy, patch_z, batch_size, mode),
         postprocessing=val_post_transform,
-        key_val_metric={"dice_ex_bg": MeanDice(include_background=False, output_transform =myfrom_engine(keys) )},
-        additional_metrics={"dice_inc_bg": MeanDice(include_background=True, output_transform = myfrom_engine(keys))},
+        key_val_metric={"DiceExBg": MeanDice(include_background=False, output_transform =myfrom_engine(keys) )},
+        additional_metrics={"DiceInBg": MeanDice(include_background=True, output_transform = myfrom_engine(keys))},
         val_handlers=val_handlers,
         amp=True,
     )
 
 
     def record_val_metrics(engine):
-        val_log_dir = mypath.metrics_fpath('valid')
-        if os.path.exists(val_log_dir):
-            val_log = np.genfromtxt(val_log_dir, dtype='str', delimiter=',')
+        val_log_fpath = str(mypath.metrics_fpath('valid'))
+        if os.path.exists(val_log_fpath):
+            val_log = np.genfromtxt(val_log_fpath, dtype='str', delimiter=',')
         else:
-            val_log = ['dice_ex_bg', 'dice_inc_bg']
-        dice_ex_bg = round(engine.state.metrics["dice_ex_bg"], 3)
-        dice_inc_bg = round(engine.state.metrics["dice_inc_bg"], 3)
+            val_log = ['DiceExBg', 'DiceInBg']
+        dice_ex_bg = round(engine.state.metrics["DiceExBg"], 3)
+        dice_inc_bg = round(engine.state.metrics["DiceInBg"], 3)
         val_log = np.vstack([val_log, [dice_ex_bg,dice_inc_bg]])
-        np.savetxt(val_log_dir, val_log, fmt='%s', delimiter=',')
-        log_metric(str(mypath.task) + mode+'_dice_ex_bg', dice_ex_bg, step=len(val_log)-1)
-        log_metric(str(mypath.task) + mode+'_dice_inc_bg', dice_inc_bg, step=len(val_log)-1)
+        np.savetxt(val_log_fpath, val_log, fmt='%s', delimiter=',')
+        log_metric(pre + "_" + mode+'DiceExBg', dice_ex_bg, step=len(val_log)-1)
+        log_metric(pre + "_" + mode+'DiceInBg', dice_inc_bg, step=len(val_log)-1)
 
     from ignite.engine import Events
     evaluator.add_event_handler(Events.COMPLETED, record_val_metrics)
