@@ -254,7 +254,7 @@ class SlidingWindowInfererCond(Inferer):
 
     def __call__(
         self,
-        inputs: torch.Tensor,
+        inputs: Tuple[torch.Tensor, torch.Tensor],
         network: Callable[..., torch.Tensor],
         *args: Any,
         **kwargs: Any,
