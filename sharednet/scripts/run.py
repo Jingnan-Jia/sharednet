@@ -7,7 +7,7 @@ import threading
 import time
 from typing import Dict, List
 from typing import (Optional, Union)
-
+import numpy as np
 import matplotlib
 import torch
 from medutils.medutils import count_parameters
@@ -301,8 +301,8 @@ class Task:
                          csv_file=prediction_folder + '/metric.csv',
                          metrics=['dice', 'jaccard', 'precision', 'recall', 'fpr', 'fnr', 'vs', 'hd', 'hd95', 'msd',
                                   'mdsd', 'stdsd'])
-        infer_dice = statistics.mean([metric['dice'][0] for metric in all_metrics_ls])
-        infer_msd = statistics.mean([metric['msd'][0] for metric in all_metrics_ls])
+        infer_dice = np.mean(np.array([metric['dice'][0] for metric in all_metrics_ls]))
+        infer_msd = np.mean(np.array([metric['msd'][0] for metric in all_metrics_ls]))
 
         log_metric(self.model_name + 'InferDice', infer_dice)
         log_metric(self.model_name + 'InferMSD', infer_msd)
